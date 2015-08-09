@@ -1,0 +1,337 @@
+```{r,results="hide",message=FALSE,echo=FALSE,warning=FALSE}
+
+library(knitr)
+library(markdown)
+library(rvest)
+library(XML)
+library("reshape2")   # for transposing data with 'cast' and 'melt' functions
+library("plyr")     # to do ply functions
+library("openxlsx")
+library(gridExtra)
+library(lattice)
+library(ggplot2)
+library(scales)
+library("pander")
+
+# Clear all objects from R memory
+rm(list=ls())
+options(digits=2)
+
+Trading_Entries <- read.xlsx("C:/Abhijay/Analytics use cases/Stock Returns/Input Folder/Share Transactions from 2005.xlsx")
+Live_Share_Prices <- read.xlsx("C:/Abhijay/Analytics use cases/Stock Returns/Input Folder/Live Share Prices.xlsx")
+
+Live_Share_Prices$SC_ID<-NA
+Live_Share_Prices$Current_NSE_Price<-NA
+Live_Share_Prices$Current_NSE_Volumes<-NA
+Live_Share_Prices$Current_BSE_Price<-NA
+Live_Share_Prices$Current_BSE_Volumes<-NA
+Live_Share_Prices$Current.Price<-NA
+Live_Share_Prices$NSE_1_yr_back<-NA
+Live_Share_Prices$NSE_2_yr_back<-NA
+Live_Share_Prices$NSE_3_yr_back<-NA
+Live_Share_Prices$BSE_1_yr_back<-NA
+Live_Share_Prices$BSE_2_yr_back<-NA
+Live_Share_Prices$BSE_3_yr_back<-NA
+Live_Share_Prices$Price_1_yr_back<-NA
+Live_Share_Prices$Price_2_yr_back<-NA
+Live_Share_Prices$Price_3_yr_back<-NA
+Live_Share_Prices$CAGR_1_yr<-NA
+Live_Share_Prices$CAGR_2_yr<-NA
+Live_Share_Prices$CAGR_3_yr<-NA
+
+##Equity
+temp<-lapply(Live_Share_Prices[Live_Share_Prices$Type=="Equity",'Link'],function(i) html(i))
+
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Current_NSE_Price<- unlist(lapply(temp,function(i) ifelse(length(i%>%html_nodes("span#Nse_Prc_tick strong"))>0,as.numeric(gsub(",","",i%>%html_nodes("span#Nse_Prc_tick strong")%>%.[[1]]%>%xmlValue())),NA)))
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Current_NSE_Volumes<- unlist(lapply(temp,function(i) ifelse(length(i%>%html_nodes("span#nse_volume"))>0,as.numeric(gsub(",","",i%>%html_nodes("span#nse_volume")%>%.[[1]]%>%xmlValue())),NA)))
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Current_BSE_Price<- unlist(lapply(temp,function(i) ifelse(length(i%>%html_nodes("span#Bse_Prc_tick"))>0,as.numeric(gsub(",","",i%>%html_nodes("span#Bse_Prc_tick")%>%.[[1]]%>%xmlValue())),NA)))
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Current_BSE_Volumes<- unlist(lapply(temp,function(i) ifelse(length(i%>%html_nodes("span#bse_volume"))>0,as.numeric(gsub(",","",i%>%html_nodes("span#bse_volume")%>%.[[1]]%>%xmlValue())),NA)))
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",'SC_ID']<-unlist(lapply(temp,function(i) i%>%html_nodes("div.chartCont2#tabs3 input")%>%html_attr("value")%>%.[[2]]))
+
+
+##Mutual Fund
+temp<-lapply(Live_Share_Prices[Live_Share_Prices$Type=="Mutual Fund",'Link'],function(i) html(i))
+Live_Share_Prices[Live_Share_Prices$Type=="Mutual Fund",]$Current_NSE_Price<- unlist(lapply(temp,function(i) ifelse(length(i%>%html_nodes("span.bd30tp"))>0,as.numeric(gsub(",","",i%>%html_nodes("span.bd30tp")%>%.[[1]]%>%xmlValue())),NA)))
+
+Live_Share_Prices[Live_Share_Prices$Type=="Mutual Fund",]$CAGR_1_yr<-as.numeric(unlist(lapply(temp,function(i) i%>%html_nodes("td.rgt span")%>%.[[4]]%>%xmlValue())))
+
+Live_Share_Prices[Live_Share_Prices$Type=="Mutual Fund",]$CAGR_2_yr<-as.numeric(unlist(lapply(temp,function(i) i%>%html_nodes("td.rgt span")%>%.[[5]]%>%xmlValue())))
+
+Live_Share_Prices[Live_Share_Prices$Type=="Mutual Fund",]$CAGR_3_yr<-as.numeric(unlist(lapply(temp,function(i) i%>%html_nodes("td.rgt span")%>%.[[6]]%>%xmlValue())))
+
+## Take Current Price and Current Traded Volumes as NSE price, if not present then BSE Price
+Live_Share_Prices$Current.Price<- ifelse(!is.na(Live_Share_Prices$Current_NSE_Price),Live_Share_Prices$Current_NSE_Price,Live_Share_Prices$Current_BSE_Price)
+
+Live_Share_Prices$Traded.Volumes<- ifelse(!is.na(Live_Share_Prices$Current_NSE_Volumes),Live_Share_Prices$Current_NSE_Volumes,Live_Share_Prices$Current_BSE_Volumes)
+
+##fetch historical prices 1,2,3 years back
+
+#Equity
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$NSE_1_yr_back<-unlist(lapply(Live_Share_Prices[Live_Share_Prices$Type=="Equity",'SC_ID'],function(i) as.numeric(html(paste("http://www.moneycontrol.com/stocks/company_info/get_histprices.php?ex=N&sc_id=",i,"&range=0&sel_date=",gsub("-","",(Sys.Date()-365*1)),"&curr_open=0.00&curr_high=0.00&curr_low=0.00&curr_close=0.00&curr_vol=0",sep=""))%>%html_nodes("td.th03")%>%.[[10]]%>%xmlValue())))
+
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$NSE_2_yr_back<-unlist(lapply(Live_Share_Prices[Live_Share_Prices$Type=="Equity",'SC_ID'],function(i) as.numeric(html(paste("http://www.moneycontrol.com/stocks/company_info/get_histprices.php?ex=N&sc_id=",i,"&range=0&sel_date=",gsub("-","",(Sys.Date()-365*2)),"&curr_open=0.00&curr_high=0.00&curr_low=0.00&curr_close=0.00&curr_vol=0",sep=""))%>%html_nodes("td.th03")%>%.[[10]]%>%xmlValue())))
+
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$NSE_3_yr_back<-unlist(lapply(Live_Share_Prices[Live_Share_Prices$Type=="Equity",'SC_ID'],function(i) as.numeric(html(paste("http://www.moneycontrol.com/stocks/company_info/get_histprices.php?ex=N&sc_id=",i,"&range=0&sel_date=",gsub("-","",(Sys.Date()-365*3)),"&curr_open=0.00&curr_high=0.00&curr_low=0.00&curr_close=0.00&curr_vol=0",sep=""))%>%html_nodes("td.th03")%>%.[[10]]%>%xmlValue())))
+
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$BSE_1_yr_back<-unlist(lapply(Live_Share_Prices[Live_Share_Prices$Type=="Equity",'SC_ID'],function(i) as.numeric(html(paste("http://www.moneycontrol.com/stocks/company_info/get_histprices.php?ex=B&sc_id=",i,"&range=0&sel_date=",gsub("-","",(Sys.Date()-365*1)),"&curr_open=0.00&curr_high=0.00&curr_low=0.00&curr_close=0.00&curr_vol=0",sep=""))%>%html_nodes("td.th03")%>%.[[10]]%>%xmlValue())))
+
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$BSE_2_yr_back<-unlist(lapply(Live_Share_Prices[Live_Share_Prices$Type=="Equity",'SC_ID'],function(i) as.numeric(html(paste("http://www.moneycontrol.com/stocks/company_info/get_histprices.php?ex=B&sc_id=",i,"&range=0&sel_date=",gsub("-","",(Sys.Date()-365*2)),"&curr_open=0.00&curr_high=0.00&curr_low=0.00&curr_close=0.00&curr_vol=0",sep=""))%>%html_nodes("td.th03")%>%.[[10]]%>%xmlValue())))
+
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$BSE_3_yr_back<-unlist(lapply(Live_Share_Prices[Live_Share_Prices$Type=="Equity",'SC_ID'],function(i) as.numeric(html(paste("http://www.moneycontrol.com/stocks/company_info/get_histprices.php?ex=B&sc_id=",i,"&range=0&sel_date=",gsub("-","",(Sys.Date()-365*3)),"&curr_open=0.00&curr_high=0.00&curr_low=0.00&curr_close=0.00&curr_vol=0",sep=""))%>%html_nodes("td.th03")%>%.[[10]]%>%xmlValue())))
+
+
+## take NSE prices as common historical prices, if not present take BSE
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_1_yr_back<- ifelse(!is.na(Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$NSE_1_yr_back),Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$NSE_1_yr_back,Live_Share_Prices$BSE_1_yr_back)
+
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_2_yr_back <- ifelse(!is.na(Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$NSE_2_yr_back),Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$NSE_2_yr_back,Live_Share_Prices$BSE_1_yr_back)
+  
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_3_yr_back <- ifelse(!is.na(Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$NSE_3_yr_back),Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$NSE_3_yr_back,Live_Share_Prices$BSE_1_yr_back)  
+
+##if 1 year 2 year or 3 year back prices are not present, fill with current price
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",][is.na(Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_1_yr_back),'Price_1_yr_back']<-Live_Share_Prices[Live_Share_Prices$Type=="Equity",][is.na(Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_1_yr_back),'Current.Price']
+
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",][is.na(Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_2_yr_back),'Price_2_yr_back']<-Live_Share_Prices[Live_Share_Prices$Type=="Equity",][is.na(Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_2_yr_back),'Current.Price']
+
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",][is.na(Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_3_yr_back),'Price_3_yr_back']<-Live_Share_Prices[Live_Share_Prices$Type=="Equity",][is.na(Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_3_yr_back),'Current.Price']
+
+
+##test link for historical prices  
+#http://www.moneycontrol.com/stocks/company_info/get_histprices.php?ex=B&sc_id=BAM02&range=0&sel_date=20130712&curr_open=0.00&curr_high=0.00&curr_low=0.00&curr_close=0.00&curr_vol=0
+
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$CAGR_1_yr<-round(100*((Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Current.Price/Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_1_yr_back)-1),2)
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$CAGR_2_yr<-round(100*((Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Current.Price/Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_2_yr_back)^(1/2)-1),2)
+Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$CAGR_3_yr<-round(100*((Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Current.Price/Live_Share_Prices[Live_Share_Prices$Type=="Equity",]$Price_3_yr_back)^(1/3)-1),2)
+
+Live_Share_Prices$CAGR_1_yr[is.na(Live_Share_Prices$CAGR_1_yr)]<-0
+Live_Share_Prices$CAGR_2_yr[is.na(Live_Share_Prices$CAGR_2_yr)]<-0
+Live_Share_Prices$CAGR_3_yr[is.na(Live_Share_Prices$CAGR_3_yr)]<-0
+
+
+#fix the numeric dates to Date format
+Trading_Entries[,1]<-as.Date(Trading_Entries[,1],origin="1899-12-30")
+
+#keep only relevant columns
+Trading_Entries$TOTAL<-Trading_Entries$Trade.Value+Trading_Entries$Brokerage.incl..taxes
+Trading_Entries<-Trading_Entries[,c(1:6,16:17)]
+
+#compute the unit price of the Share (incl. Brokerage and tax)
+Trading_Entries$Unit_Price<-Trading_Entries$TOTAL/Trading_Entries$Qty
+
+#create 2 datasets - one for Buy txns and one for Sell Txns
+Buy_Trading_Entries<-data.frame(Trading_Entries[Trading_Entries$Action=="Buy",],row.names=NULL)
+names(Buy_Trading_Entries)[names(Buy_Trading_Entries)=="Date"] <- "Buy_Date" 
+names(Buy_Trading_Entries)[names(Buy_Trading_Entries)=="Unit_Price"] <- "Buy_Price"
+Buy_Trading_Entries<-Buy_Trading_Entries[,c(1:2,4,9)]
+Buy_Trading_Entries<-Buy_Trading_Entries[order(Buy_Trading_Entries$Stock,Buy_Trading_Entries$Buy_Date),]
+
+Sell_Trading_Entries<-data.frame(Trading_Entries[Trading_Entries$Action=="Sell",],row.names=NULL)
+names(Sell_Trading_Entries)[names(Sell_Trading_Entries)=="Date"] <- "Sell_Date" 
+names(Sell_Trading_Entries)[names(Sell_Trading_Entries)=="Unit_Price"] <- "Sell_Price"
+Sell_Trading_Entries<-Sell_Trading_Entries[,c(1:2,4,9)]
+Sell_Trading_Entries<-Sell_Trading_Entries[order(Sell_Trading_Entries$Stock,Sell_Trading_Entries$Sell_Date),]
+
+#expand the Buy dataset to have 1 share txn per row
+Buy_Journal<-data.frame(Buy_Date=character(),Stock=character(0), Qty=numeric(0),Buy_Price=numeric(0),row.names=NULL)
+Sell_Journal<-data.frame(Sell_Date=character(),Stock=character(0), Qty=numeric(0),Sell_Price=numeric(0),row.names=NULL)
+
+#Buy
+i <- 1
+for (i in 1:nrow(Buy_Trading_Entries))
+{
+  if(identical(Buy_Trading_Entries$Stock[i],Buy_Trading_Entries$Stock[(i-1)]))
+  {
+    Sl_No_Start<-Sl_No_End+1
+    Sl_No_End<-Sl_No_Start+Buy_Trading_Entries$Qty[i]-1
+  } 
+  else
+  {
+    Sl_No_Start<-1
+    Sl_No_End<-Buy_Trading_Entries$Qty[i]
+  }
+  rec  <- Buy_Trading_Entries[i,]
+  recm<-rec[rep(seq_len(nrow(rec)), each=Buy_Trading_Entries$Qty[i]),]
+  recm$Sl_No<-seq(Sl_No_Start,Sl_No_End, by=1)
+  Buy_Journal <- data.frame(rbind(Buy_Journal, recm))
+  i <- i+1
+}
+
+#Sell
+i <- 1
+for (i in 1:nrow(Sell_Trading_Entries))
+{
+  if(identical(Sell_Trading_Entries$Stock[i],Sell_Trading_Entries$Stock[(i-1)]))
+  {
+    Sl_No_Start<-Sl_No_End+1
+    Sl_No_End<-Sl_No_Start+Sell_Trading_Entries$Qty[i]-1
+  } 
+  else
+  {
+    Sl_No_Start<-1
+    Sl_No_End<-Sell_Trading_Entries$Qty[i]
+  }
+  rec  <- Sell_Trading_Entries[i,]
+  recm<-rec[rep(seq_len(nrow(rec)), each=Sell_Trading_Entries$Qty[i]),]
+  recm$Sl_No<-seq(Sl_No_Start,Sl_No_End, by=1)
+  Sell_Journal <- data.frame(rbind(Sell_Journal, recm))
+  i <- i+1
+}
+
+row.names(Buy_Journal)<-NULL
+row.names(Sell_Journal)<-NULL
+
+#sort by the Stock Code and date
+Buy_Journal<-Buy_Journal[order(Buy_Journal$Stock,Buy_Journal$Buy_Date),]
+Sell_Journal<-Sell_Journal[order(Sell_Journal$Stock,Sell_Journal$Sell_Date),]
+
+rm(rec,recm,i,Sl_No_Start,Sl_No_End)
+
+#Create a Buy/Sell Trade journal
+Trade_Journal<-merge(Buy_Journal,Sell_Journal,by=c("Stock","Sl_No"),all.x=TRUE)
+#get live quotes of stocks I am still holding and replace Sell_Price with that
+Trade_Journal<-merge(Trade_Journal,Live_Share_Prices,"Stock",all.x=TRUE)
+Trade_Journal$Sell_Price[is.na(Trade_Journal$Sell_Price)]<-Trade_Journal$Current.Price[is.na(Trade_Journal$Sell_Price)]
+#replace current holdings Sell_Date with today's date
+Trade_Journal$Sell_Date[is.na(Trade_Journal$Sell_Date)]<-Sys.Date()
+Trade_Journal$Holding_Period<-as.numeric(as.Date(Trade_Journal$Sell_Date) - as.Date(Trade_Journal$Buy_Date))
+Trade_Journal$Capital_Gains<-Trade_Journal$Sell_Price - Trade_Journal$Buy_Price
+Trade_Journal$Cummulative_Returns<-((Trade_Journal$Sell_Price/Trade_Journal$Buy_Price)-1)*100
+Trade_Journal$CAGR[Trade_Journal$Holding_Period>=365]<-((Trade_Journal$Sell_Price[Trade_Journal$Holding_Period>=365]/Trade_Journal$Buy_Price[Trade_Journal$Holding_Period>=365])^(365/Trade_Journal$Holding_Period[Trade_Journal$Holding_Period>=365])-1)*100
+
+Trade_Journal$Current.Price<-NULL
+
+
+################################
+#Analyze Current share holding##
+################################
+Current_Share_Holdings<-ddply(Trade_Journal[is.na(Trade_Journal$Qty.y),],.(Holding_Period,Stock,Location),summarize,No_Of_Shares=length(Sl_No),Capital_Locked=sum(Buy_Price),Current_Price=sum(Sell_Price),Cummulative_Returns=round(mean(Cummulative_Returns),2),CAGR=round(mean(CAGR),2))
+Current_Share_Holdings$Period_In_Mths<-cut(Current_Share_Holdings$Holding_Period, breaks=c(seq(0,1080,90),max(Current_Share_Holdings$Holding_Period)), labels=c("0-3","3-6","6-9","9-12","12-15","15-18","18-21","21-24","24-27","27-30","30-33","33-36","> 3yr"))
+```
+
+Current Value of Portfolio
+==========================
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+options(digits=2)
+Live_Share_Prices<-merge(Live_Share_Prices,ddply(Current_Share_Holdings,c("Stock"),summarize,No_Of_Units=sum(No_Of_Shares),Invested=sum(Capital_Locked),Current_Value=sum(Current_Price)),by="Stock",all.x = TRUE)
+
+Live_Share_Prices$Value_1_yr_back<-Live_Share_Prices$Current_Value/(1+Live_Share_Prices$CAGR_1_yr/100)
+
+Live_Share_Prices$Value_2_yr_back<-Live_Share_Prices$Current_Value/(1+Live_Share_Prices$CAGR_2_yr/100)^2
+
+Live_Share_Prices$Value_3_yr_back<-Live_Share_Prices$Current_Value/(1+Live_Share_Prices$CAGR_3_yr/100)^3
+
+temp<-Live_Share_Prices[order(Live_Share_Prices$Current_Value),c('Stock','Current_Value','Value_1_yr_back','Value_2_yr_back','Value_3_yr_back')]
+temp[nrow(temp)+1,]<-c("Total",colSums(temp[,2:5]))
+temp$Current_Value<-format(round(as.numeric(temp$Current_Value),2),nsmall=2)
+temp$Value_1_yr_back<-format(round(as.numeric(temp$Value_1_yr_back),2),nsmall=2)
+temp$Value_2_yr_back<-format(round(as.numeric(temp$Value_2_yr_back),2),nsmall=2)
+temp$Value_3_yr_back<-format(round(as.numeric(temp$Value_3_yr_back),2),nsmall=2)
+rownames(temp)<-NULL
+#names(temp)<-c("Stock","Current_Val","Yr_1","Yr_2","Yr_3")
+pandoc.table(temp,style="simple",split.table=Inf,justify="right",caption="Fig 1",emphasize.strong.rows=nrow(temp))
+#pandoc.table(temp,style="grid",split.cell=25,caption="Fig 1")
+#pandoc.table(temp,style="grid",split.cells=c("60%","10%","10%","10%","10%"))
+#pandoc.table(temp,style="grid",split.cell=8)
+```
+
+Traded volumes of Current share holdings
+========================================
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+options(digits=2)
+
+temp2<-Live_Share_Prices[order(Live_Share_Prices$Traded.Volumes),c('Stock','No_Of_Units','Traded.Volumes')]
+rownames(temp2)<-NULL
+pandoc.table(temp2,style="simple",split.table=Inf,justify="right",caption="Fig 2")
+```
+
+CAGRs of current share holdings based on market prices
+======================================================
+```{r,message=FALSE,warning=FALSE,echo=FALSE,width=100}
+options(digits=2)
+temp1<-Live_Share_Prices[order(Live_Share_Prices$Traded.Volumes),c('Stock','CAGR_1_yr','CAGR_2_yr','CAGR_3_yr','Traded.Volumes')]
+CAGR_1_yr<-round(100*(as.numeric(temp[nrow(temp),'Current_Value'])/as.numeric(temp[nrow(temp),'Value_1_yr_back'])-1),2)
+CAGR_2_yr<-round(100*((as.numeric(temp[nrow(temp),'Current_Value'])/as.numeric(temp[nrow(temp),'Value_2_yr_back']))^(1/2)-1),2)
+CAGR_3_yr<-round(100*((as.numeric(temp[nrow(temp),'Current_Value'])/as.numeric(temp[nrow(temp),'Value_3_yr_back']))^(1/3)-1),2)
+temp1[nrow(temp1)+1,]<-c("Total",CAGR_1_yr,CAGR_2_yr,CAGR_3_yr,NA)
+rownames(temp1)<-NULL
+temp1$CAGR_1_yr<-format(temp1$CAGR_1_yr,nsmall=2)
+temp1$CAGR_2_yr<-format(temp1$CAGR_2_yr,nsmall=2)
+temp1$CAGR_3_yr<-format(temp1$CAGR_3_yr,nsmall=2)
+pandoc.table(temp1,style="simple",split.table=Inf,justify="right",caption="Fig 3",emphasize.strong.rows=nrow(temp1))
+```
+
+
+Invested vs Current Value
+=========================
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE,fig.width=15.0, fig.height=12.0}
+#see current values and invested values of all stock holdings
+pl1<-ggplot(ddply(Current_Share_Holdings,c("Stock"),summarize,Current_Value=sum(Current_Price)),aes(x=reorder(Stock,Current_Value),y=Current_Value,label=Current_Value))+geom_bar(color="red",fill="grey",stat="identity") + theme(axis.text.x = element_text(angle = 60, hjust = 1),axis.title.x=element_blank(),axis.title.y=element_blank())+geom_text(size=4,hjust=0.5,vjust=1.5,fontface="bold")+ scale_y_continuous(labels = comma)
+pl1<-pl1+geom_hline(aes(yintercept=mean(Current_Value)),linetype="longdash")+geom_text(aes(x=ddply(Current_Share_Holdings,c("Stock"),summarize,Current_Value=sum(Current_Price))[,1][order(ddply(Current_Share_Holdings,c("Stock"),summarize,Current_Value=sum(Current_Price))[,2])[2]],y=mean(ddply(Current_Share_Holdings,c("Stock"),summarize,Current_Value=sum(Current_Price))[,2]+45000),label=paste("mean = ",round(mean(ddply(Current_Share_Holdings,c("Stock"),summarize,Current_Value=sum(Current_Price))[,2]),0))),size=4,fontface="bold")+xlab("Stcok")+ylab("Current Valuation")+ggtitle("Current Valuation")+theme(plot.title=element_text(lineheight = 2,face="bold"))
+pl2<-ggplot(ddply(Current_Share_Holdings,c("Stock"),summarize,Invested=sum(Capital_Locked)),aes(x=reorder(Stock,Invested),y=Invested,label=Invested))+geom_bar(color="red",fill="grey",stat="identity") + theme(axis.text.x = element_text(angle = 60, hjust = 1),axis.title.x=element_blank(),axis.title.y=element_blank())+geom_text(size=4,hjust=0.5,vjust=1.5,fontface="bold")+ scale_y_continuous(labels = comma)
+pl2<-pl2+geom_hline(aes(yintercept=mean(Invested)),linetype="longdash")+geom_text(aes(x=ddply(Current_Share_Holdings,c("Stock"),summarize,Invested=sum(Capital_Locked))[,1][order(ddply(Current_Share_Holdings,c("Stock"),summarize,Invested=sum(Capital_Locked))[,2])[2]],y=mean(ddply(Current_Share_Holdings,c("Stock"),summarize,Invested=sum(Capital_Locked))[,2]+45000),label=paste("mean = ",round(mean(ddply(Current_Share_Holdings,c("Stock"),summarize,Invested=sum(Capital_Locked))[,2]),0))),size=4,fontface="bold")+xlab("Stock")+ylab("Invested")+ggtitle("Invested")+theme(plot.title=element_text(lineheight = 2,face="bold"))
+grid.arrange(pl1,pl2,ncol=1)
+```
+
+
+CAGR for Stocks held greater than 1 year
+========================================
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+temp<-ddply(Current_Share_Holdings[Current_Share_Holdings$Holding_Period>=365,],c("Period_In_Mths","Stock"),summarize,Invested=sum(Capital_Locked),CAGR=mean(CAGR))
+temp<-temp[order(temp[,'CAGR']),]
+temp$Invested<-format(temp$Invested,nsmall=2)
+temp$CAGR<-format(temp$CAGR,nsmall=2)
+rownames(temp)<-NULL
+pandoc.table(temp,style="simple",split.table=Inf,justify="right",caption="Fig 4")
+```
+
+Simple Appreciation for Stocks held less than 1 year
+=======================================================
+```{r,set-options,message=FALSE,warning=FALSE,echo=FALSE}
+temp<-ddply(Current_Share_Holdings[Current_Share_Holdings$Holding_Period<365,],c("Period_In_Mths","Stock"),summarize,Invested=sum(Capital_Locked),Current_Value=sum(Current_Price),Appreciation=100*(sum(Current_Price)/sum(Capital_Locked)-1))
+temp<-temp[order(temp[,5]),]
+temp$Invested<-format(temp$Invested,nsmall=2)
+temp$Current_Value<-format(temp$Current_Value,nsmall=2)
+temp$Appreciation<-format(temp$Appreciation,nsmall=2)
+rownames(temp)<-NULL
+pandoc.table(temp,style="simple",split.table=Inf,justify="right",caption="Fig 5")
+```
+
+ROI for the entire portfolio
+========================================
+```{r,echo=FALSE, message=FALSE,warning=FALSE,fig.width=10.0, fig.height=10.0}
+pl1<-ggplot(ddply(Current_Share_Holdings,("Period_In_Mths"),summarize,Invested=sum(Capital_Locked),Current_Value=sum(Current_Price)),aes(x=Period_In_Mths,y=Invested))+geom_bar(stat="identity",fill="red")+geom_text(aes(label=Invested),size=4,hjust=0.5,vjust=1.5,fontface="bold")
+pl2<-ggplot(ddply(Current_Share_Holdings,("Period_In_Mths"),summarize,Cumulative_Returns=round(((sum(Current_Price)/sum(Capital_Locked)-1)*100),2)),aes(x=Period_In_Mths,y=Cumulative_Returns))+geom_bar(stat="identity",fill="blue")+geom_text(aes(label=Cumulative_Returns),size=4,hjust=0.5,vjust=1.5,fontface="bold")
+pl3<-ggplot(ddply(Current_Share_Holdings,("Period_In_Mths"),summarize,CAGR=round(100*((sum(Current_Price)/sum(Capital_Locked))^(365/median(Holding_Period))-1),2)),aes(x=Period_In_Mths,y=CAGR))+geom_bar(stat="identity",fill="blue")+geom_text(aes(label=CAGR),size=4,hjust=0.5,vjust=1.5,fontface="bold")+geom_rect(aes(xmin="0-3",xmax="9-12",ymin=0,ymax=max(CAGR)),fill="grey")
+grid.arrange(pl1,pl2,pl3,ncol=1)
+```
+
+Domestic vs Internation allocations
+====================================
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+pl1<-ggplot(ddply(Current_Share_Holdings,"Location",summarize,Invested=sum(Capital_Locked)),aes(x=Location,y=Invested,label=Invested))+geom_bar(color="red",fill="grey",stat="identity") + theme(axis.text.x = element_text(angle = 60, hjust = 1),axis.title.x=element_blank(),axis.title.y=element_blank())+geom_text(size=4,hjust=0.5,vjust=1.5,fontface="bold")+ scale_y_continuous(labels = comma)+ggtitle("Invested")+theme(plot.title=element_text(lineheight = 2,face="bold"))
+pl2<-ggplot(ddply(Current_Share_Holdings,"Location",summarize,Cumulative_Returns=round(((sum(Current_Price)/sum(Capital_Locked)-1)*100),2)),aes(x=Location,y=Cumulative_Returns))+geom_bar(stat="identity",fill="blue")+geom_text(aes(label=Cumulative_Returns),size=4,hjust=0.5,vjust=1.5,fontface="bold")+ theme(axis.text.x = element_text(angle = 60, hjust = 1),axis.title.x=element_blank(),axis.title.y=element_blank())+ggtitle("Cumulative Returns")+theme(plot.title=element_text(lineheight = 2,face="bold"))
+grid.arrange(pl1,pl2,ncol=1)
+```
+
+Correlation analysis of the combination of stocks with past 2 year data
+========================================================================
+
+
+```{r,echo=FALSE}
+################################
+#Analyze realized capital gains##
+################################
+
+#Create a list of shares from highest to lowest Holding Period
+#Realized_Capital_Gains_By_Holding_Period<-ddply(Trade_Journal[!is.na(Trade_Journal$Sell_Price),],.(Holding_Period,Stock),summarize,No_Of_Shares=length(Sl_No),Capital_Gains=round(sum(Capital_Gains),2))
+#Realized_Capital_Gains_By_Holding_Period<-Realized_Capital_Gains_By_Holding_Period[,c(2,3,1,4)]
+
+#setwd("C:/Abhijay/Analytics use cases/Stock Returns/Output Folder")
+#write.csv(Buy_Journal,"Buy_Journal.csv")
+#write.csv(Sell_Journal,"Sell_Journal.csv")
+#write.csv(Trade_Journal,"Trade_Journal.csv")
+#write.csv(Realized_Capital_Gains_By_Holding_Period,"Realized_Capital_Gains_By_Holding_Period.csv")
+#write.csv(Current_Share_Holdings,"Current_Share_Holdings.csv")
+```
